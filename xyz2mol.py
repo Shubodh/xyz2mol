@@ -9,6 +9,8 @@ Implementation by Jan H. Jensen, based on the paper
     Bull. Korean Chem. Soc. 2015, Vol. 36, 1769-1777
     DOI: 10.1002/bkcs.10334
 
+NOTE: The code currently works only for organic molecules, i.e. 
+molecules containing the following elements: H, B, C-F, Si-Cl, Br, and I.
 """
 
 import copy
