@@ -1,4 +1,4 @@
-name: x2m_env
+name: gnn_project
 dependencies:
   - python=3.7
   - rdkit::rdkit
