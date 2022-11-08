@@ -16,6 +16,16 @@ import sys
 
 import helper_graph as helg #import BOadj_to_BOmat
 
+from rdkit.Chem import rdmolops
+from rdkit.Chem import rdchem
+try:
+    from rdkit.Chem import rdEHTTools #requires RDKit 2019.9.1 or later
+except ImportError:
+    rdEHTTools = None
+
+from rdkit import Chem
+from rdkit.Chem import AllChem, rdmolops
+
 global __ATOM_LIST__
 __ATOM_LIST__ = \
     ['h',  'he',
@@ -73,6 +83,60 @@ def int_atom(atom):
     atom = atom.lower()
     return __ATOM_LIST__.index(atom) + 1
 
+def get_proto_mol(atoms):
+    """
+    """
+    mol = Chem.MolFromSmarts("[#" + str(atoms[0]) + "]")
+    rwMol = Chem.RWMol(mol)
+    for i in range(1, len(atoms)):
+        a = Chem.Atom(atoms[i])
+        rwMol.AddAtom(a)
+
+    mol = rwMol.GetMol()
+
+    return mol
+
+def get_AC(mol, covalent_factor=1.3):
+    """
+
+    Generate adjacent matrix from atoms and coordinates.
+
+    AC is a (num_atoms, num_atoms) matrix with 1 being covalent bond and 0 is not
+
+
+    covalent_factor - 1.3 is an arbitrary factor
+
+    args:
+        mol - rdkit molobj with 3D conformer
+
+    optional
+        covalent_factor - increase covalent bond length threshold with facto
+
+    returns:
+        AC - adjacent matrix
+
+    """
+
+    # Calculate distance matrix
+    dMat = Chem.Get3DDistanceMatrix(mol)
+
+    pt = Chem.GetPeriodicTable()
+    num_atoms = mol.GetNumAtoms()
+    AC = np.zeros((num_atoms, num_atoms), dtype=int)
+
+    for i in range(num_atoms):
+        a_i = mol.GetAtomWithIdx(i)
+        Rcov_i = pt.GetRcovalent(a_i.GetAtomicNum()) * covalent_factor
+        for j in range(i + 1, num_atoms):
+            a_j = mol.GetAtomWithIdx(j)
+            Rcov_j = pt.GetRcovalent(a_j.GetAtomicNum()) * covalent_factor
+            if dMat[i, j] <= Rcov_i + Rcov_j:
+                AC[i, j] = 1
+                AC[j, i] = 1
+
+    return AC
+
+
 def read_xyz_file(filename, look_for_charge=True):
     """
     """
@@ -98,6 +162,87 @@ def read_xyz_file(filename, look_for_charge=True):
     atoms = [int_atom(atom) for atom in atomic_symbols]
 
     return atoms, charge, xyz_coordinates
+
+def xyz2AC(atoms, xyz, charge, use_huckel=False):
+    """
+
+    atoms and coordinates to atom connectivity (AC)
+
+    args:
+        atoms - int atom types
+        xyz - coordinates
+        charge - molecule charge
+
+    optional:
+        use_huckel - Use Huckel method for atom connecitivty
+
+    returns
+        ac - atom connectivity matrix
+        mol - rdkit molecule
+
+    """
+
+    if use_huckel:
+        return xyz2AC_huckel(atoms, xyz, charge)
+    else:
+        return xyz2AC_vdW(atoms, xyz)
+
+
+def xyz2AC_vdW(atoms, xyz):
+
+    # Get mol template
+    mol = get_proto_mol(atoms)
+
+    # Set coordinates
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    for i in range(mol.GetNumAtoms()):
+        conf.SetAtomPosition(i, (xyz[i][0], xyz[i][1], xyz[i][2]))
+    mol.AddConformer(conf)
+
+    AC = get_AC(mol)
+
+    return AC, mol
+
+def xyz2AC_huckel(atomicNumList, xyz, charge):
+    """
+
+    args
+        atomicNumList - atom type list
+        xyz - coordinates
+        charge - molecule charge
+
+    returns
+        ac - atom connectivity
+        mol - rdkit molecule
+
+    """
+    mol = get_proto_mol(atomicNumList)
+
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    for i in range(mol.GetNumAtoms()):
+        conf.SetAtomPosition(i,(xyz[i][0],xyz[i][1],xyz[i][2]))
+    mol.AddConformer(conf)
+
+    num_atoms = len(atomicNumList)
+    AC = np.zeros((num_atoms,num_atoms)).astype(int)
+
+    mol_huckel = Chem.Mol(mol)
+    mol_huckel.GetAtomWithIdx(0).SetFormalCharge(charge) #mol charge arbitrarily added to 1st atom    
+
+    passed,result = rdEHTTools.RunMol(mol_huckel)
+    opop = result.GetReducedOverlapPopulationMatrix()
+    tri = np.zeros((num_atoms, num_atoms))
+    tri[np.tril(np.ones((num_atoms, num_atoms), dtype=bool))] = opop #lower triangular to square matrix
+    for i in range(num_atoms):
+        for j in range(i+1,num_atoms):
+            pair_pop = abs(tri[j,i])   
+            if pair_pop >= 0.15: #arbitry cutoff for bond. May need adjustment
+                AC[i,j] = 1
+                AC[j,i] = 1
+
+    return AC, mol
+
+
 
 def BO2mol(mol, BO_matrix, atoms, atomic_valence_electrons,
            mol_charge, allow_charged_fragments=True,  use_atom_maps=False):
@@ -194,7 +339,7 @@ def BOfile_to_BOadj(BOfile): #
     return bond_orders
 
 
-def xyz_bo_2mol(atoms, coordinates, charge=0, allow_charged_fragments=True,
+def xyz_bo_2mol(BOmat, ACmat, atoms, coordinates, charge=0, allow_charged_fragments=True,
             use_graph=True, use_huckel=False, embed_chiral=True,
             use_atom_maps=False):
     """
@@ -218,7 +363,7 @@ def xyz_bo_2mol(atoms, coordinates, charge=0, allow_charged_fragments=True,
 
     # Get atom connectivity (AC) matrix, list of atomic numbers, molecular charge,
     # and mol object with no connectivity information
-    AC, mol = xyz2AC(atoms, coordinates, charge, use_huckel=use_huckel)
+    AC_ignore, mol = xyz2AC(atoms, coordinates, charge, use_huckel=use_huckel)
 
     # Convert AC to bond order matrix and add connectivity and charge info to
     # mol object
@@ -236,6 +381,70 @@ def xyz_bo_2mol(atoms, coordinates, charge=0, allow_charged_fragments=True,
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(usage='%(prog)s [options] molecule.xyz')
+    parser.add_argument('structure', metavar='structure', type=str)
+    parser.add_argument('-s', '--sdf',
+        action="store_true",
+        help="Dump sdf file")
+    parser.add_argument('--ignore-chiral',
+        action="store_true",
+        help="Ignore chiral centers")
+    parser.add_argument('--no-charged-fragments',
+        action="store_true",
+        help="Allow radicals to be made")
+    parser.add_argument('--no-graph',
+        action="store_true",
+        help="Run xyz2mol without networkx dependencies")
+
+    # huckel uses extended Huckel bond orders to locate bonds (requires RDKit 2019.9.1 or later)
+    # otherwise van der Waals radii are used
+    parser.add_argument('--use-huckel',
+        action="store_true",
+        help="Use Huckel method for atom connectivity")
+    parser.add_argument('-o', '--output-format',
+        action="store",
+        type=str,
+        help="Output format [smiles,sdf] (default=sdf)")
+    parser.add_argument('-c', '--charge',
+        action="store",
+        metavar="int",
+        type=int,
+        help="Total charge of the system")
+
+    args = parser.parse_args()
+
+    # read xyz file
+    filename = args.structure
+
+    # allow for charged fragments, alternatively radicals are made
+    charged_fragments = not args.no_charged_fragments
+
+    # quick is faster for large systems but requires networkx
+    # if you don't want to install networkx set quick=False and
+    # uncomment 'import networkx as nx' at the top of the file
+    quick = not args.no_graph
+
+    # chiral comment
+    embed_chiral = not args.ignore_chiral
+
+    # huckel uses extended Huckel bond orders to locate bonds (requires RDKit 2019.9.1 or later)
+    # otherwise van der Waals radii are used
+    use_huckel = args.use_huckel
+
+    # if explicit charge from args, set it
+    if args.charge is not None:
+        charge = int(args.charge)
+
+
+
+
+
+
+
+
+
     # read atoms and coordinates. Try to find the charge
     data_path = '/home/shubodh/OneDrive/mll_projects/2022/xyz2mol/examples/'
     full_bo_file = 'tmQM_X.BO'
@@ -245,93 +454,24 @@ if __name__ == "__main__":
     BOfile = data_path + fe_bo_file
     xyz_filename = data_path + fe_xyz_file
 
+    # # read atoms and coordinates. Try to find the charge
+    # atoms, charge, xyz_coordinates = read_xyz_file(filename)
+
     atoms, charge, xyz_coordinates = read_xyz_file(xyz_filename)
     BOadj = BOfile_to_BOadj(BOfile)
-    BOmat, adjMatrix = helg.BOadj_to_BOmat(BOadj)
+    BOmat, ACmat = helg.BOadj_to_BOmat(BOadj)
+
+    # Get the molobjs
+    mols = xyz_bo_2mol(BOmat, ACmat, atoms, xyz_coordinates,
+        charge=charge,
+        use_graph=quick,
+        allow_charged_fragments=charged_fragments,
+        embed_chiral=embed_chiral,
+        use_huckel=use_huckel)
 
     print(BOmat)
-    # import argparse
-
-    # parser = argparse.ArgumentParser(usage='%(prog)s [options] molecule.xyz')
-    # parser.add_argument('structure', metavar='structure', type=str)
-
-    # BOfile_to_BOmat(BOfile)
-
-    # mols = xyz_bo_2mol(atoms, xyz_coordinates,
-    #     charge=charge,
-    #     use_graph=quick,
-    #     allow_charged_fragments=charged_fragments,
-    #     embed_chiral=embed_chiral,
-    #     use_huckel=use_huckel)
 
 # if __name__ == "__main__":
-
-#     import argparse
-
-#     parser = argparse.ArgumentParser(usage='%(prog)s [options] molecule.xyz')
-#     parser.add_argument('structure', metavar='structure', type=str)
-#     parser.add_argument('-s', '--sdf',
-#         action="store_true",
-#         help="Dump sdf file")
-#     parser.add_argument('--ignore-chiral',
-#         action="store_true",
-#         help="Ignore chiral centers")
-#     parser.add_argument('--no-charged-fragments',
-#         action="store_true",
-#         help="Allow radicals to be made")
-#     parser.add_argument('--no-graph',
-#         action="store_true",
-#         help="Run xyz2mol without networkx dependencies")
-
-#     # huckel uses extended Huckel bond orders to locate bonds (requires RDKit 2019.9.1 or later)
-#     # otherwise van der Waals radii are used
-#     parser.add_argument('--use-huckel',
-#         action="store_true",
-#         help="Use Huckel method for atom connectivity")
-#     parser.add_argument('-o', '--output-format',
-#         action="store",
-#         type=str,
-#         help="Output format [smiles,sdf] (default=sdf)")
-#     parser.add_argument('-c', '--charge',
-#         action="store",
-#         metavar="int",
-#         type=int,
-#         help="Total charge of the system")
-
-#     args = parser.parse_args()
-
-#     # read xyz file
-#     filename = args.structure
-
-#     # allow for charged fragments, alternatively radicals are made
-#     charged_fragments = not args.no_charged_fragments
-
-#     # quick is faster for large systems but requires networkx
-#     # if you don't want to install networkx set quick=False and
-#     # uncomment 'import networkx as nx' at the top of the file
-#     quick = not args.no_graph
-
-#     # chiral comment
-#     embed_chiral = not args.ignore_chiral
-
-#     # read atoms and coordinates. Try to find the charge
-#     atoms, charge, xyz_coordinates = read_xyz_file(filename)
-
-#     # huckel uses extended Huckel bond orders to locate bonds (requires RDKit 2019.9.1 or later)
-#     # otherwise van der Waals radii are used
-#     use_huckel = args.use_huckel
-
-#     # if explicit charge from args, set it
-#     if args.charge is not None:
-#         charge = int(args.charge)
-
-#     # Get the molobjs
-#     mols = xyz_bo_2mol(atoms, xyz_coordinates,
-#         charge=charge,
-#         use_graph=quick,
-#         allow_charged_fragments=charged_fragments,
-#         embed_chiral=embed_chiral,
-#         use_huckel=use_huckel)
 
 #     # Print output
 #     for mol in mols:
