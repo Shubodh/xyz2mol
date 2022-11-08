@@ -1,0 +1,18 @@
+{
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Python: Current File",
+			"type": "python",
+			"request": "launch",
+			"program": "${file}",
+			// "args": ["examples/acetate.xyz"], //edited // "args": ["--key1", "value1", "value2", "--key2", "value3", "value4"]
+			// "args": ["examples/propylbenzene.xyz"], //edited // "args": ["--key1", "value1", "value2", "--key2", "value3", "value4"]
+			"console": "integratedTerminal",
+			"justMyCode": true
+		}
+	]
+}
