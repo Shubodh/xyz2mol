@@ -1,3 +1,5 @@
+examples/tmQM/full_files/
+
 *.cprof
 .pytest_cache
 
