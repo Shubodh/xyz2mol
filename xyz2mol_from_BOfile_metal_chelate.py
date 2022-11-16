@@ -161,7 +161,7 @@ def read_xyz_file(filename, look_for_charge=True):
 
     atoms = [int_atom(atom) for atom in atomic_symbols]
 
-    return atoms, charge, xyz_coordinates
+    return atoms, charge, xyz_coordinates, num_atoms
 
 def xyz2AC(atoms, xyz, charge, use_huckel=False):
     """
@@ -242,6 +242,42 @@ def xyz2AC_huckel(atomicNumList, xyz, charge):
 
     return AC, mol
 
+# def AC2mol(mol, AC, atoms, charge, allow_charged_fragments=True, 
+def AC2mol(mol, ACmat, BOmat, atoms, charge, allow_charged_fragments=True, 
+           use_graph=True, use_atom_maps=False):
+    """
+    """
+
+    # convert AC matrix to bond order (BO) matrix
+    # BO, atomic_valence_electrons = AC2BO(
+    #     AC,
+    #     atoms,
+    #     charge,
+    #     allow_charged_fragments=allow_charged_fragments,
+    #     use_graph=use_graph)
+
+    # print("dbef here", BO, AC)
+
+    # add BO connectivity and charge info to mol object
+    mol = BO2mol(
+        mol,
+        BOmat,
+        atoms,
+        atomic_valence_electrons,
+        charge,
+        allow_charged_fragments=allow_charged_fragments,
+        use_atom_maps=use_atom_maps)
+
+    # If charge is not correct don't return mol
+    if Chem.GetFormalCharge(mol) != charge:
+        return []
+
+    # BO2mol returns an arbitrary resonance form. Let's make the rest
+    mols = rdchem.ResonanceMolSupplier(mol, Chem.UNCONSTRAINED_CATIONS, Chem.UNCONSTRAINED_ANIONS)
+    mols = [mol for mol in mols]
+
+    return mols
+
 
 
 def BO2mol(mol, BO_matrix, atoms, atomic_valence_electrons,
@@ -292,18 +328,18 @@ def BO2mol(mol, BO_matrix, atoms, atomic_valence_electrons,
 
     mol = rwMol.GetMol()
 
-    if allow_charged_fragments:
-        mol = set_atomic_charges(
-            mol,
-            atoms,
-            atomic_valence_electrons,
-            BO_valences,
-            BO_matrix,
-            mol_charge,
-            use_atom_maps)
-    else:
-        mol = set_atomic_radicals(mol, atoms, atomic_valence_electrons, BO_valences,
-                                                            use_atom_maps)
+    # if allow_charged_fragments:
+    #     mol = set_atomic_charges(
+    #         mol,
+    #         atoms,
+    #         atomic_valence_electrons,
+    #         BO_valences,
+    #         BO_matrix,
+    #         mol_charge,
+    #         use_atom_maps)
+    # else:
+    #     mol = set_atomic_radicals(mol, atoms, atomic_valence_electrons, BO_valences,
+    #                                                         use_atom_maps)
 
     return mol
 
@@ -367,15 +403,15 @@ def xyz_bo_2mol(BOmat, ACmat, atoms, coordinates, charge=0, allow_charged_fragme
 
     # Convert AC to bond order matrix and add connectivity and charge info to
     # mol object
-    new_mols = AC2mol(mol, AC, atoms, charge,
+    new_mols = AC2mol(mol, ACmat, BOmat, atoms, charge,
                      allow_charged_fragments=allow_charged_fragments,
                      use_graph=use_graph,
                      use_atom_maps=use_atom_maps)
 
     # Check for stereocenters and chiral centers
-    if embed_chiral:
-        for new_mol in new_mols:
-            chiral_stereo_check(new_mol)
+    # if embed_chiral:
+    #     for new_mol in new_mols:
+    #         chiral_stereo_check(new_mol)
 
     return new_mols
 
@@ -446,10 +482,13 @@ if __name__ == "__main__":
 
 
     # read atoms and coordinates. Try to find the charge
-    data_path = '/home/shubodh/OneDrive/mll_projects/2022/xyz2mol/examples/'
+    data_path = '/home/shubodh/OneDrive/mll_projects/2022/xyz2mol/examples/tmQM/'
     full_bo_file = 'tmQM_X.BO'
-    fe_bo_file = 'tmQM_X_Fe_mol.BO'
-    fe_xyz_file = 'tmQM_X1_Fe_mol.xyz'
+
+    indi_id = 3
+    indi_name = 'tmQM_X1_Fe_mol_' + str(indi_id)
+    fe_bo_file = indi_name + '.BO'
+    fe_xyz_file = indi_name + '.xyz'
 
     BOfile = data_path + fe_bo_file
     xyz_filename = data_path + fe_xyz_file
@@ -457,9 +496,9 @@ if __name__ == "__main__":
     # # read atoms and coordinates. Try to find the charge
     # atoms, charge, xyz_coordinates = read_xyz_file(filename)
 
-    atoms, charge, xyz_coordinates = read_xyz_file(xyz_filename)
+    atoms, charge, xyz_coordinates, num_atoms = read_xyz_file(xyz_filename)
     BOadj = BOfile_to_BOadj(BOfile)
-    BOmat, ACmat = helg.BOadj_to_BOmat(BOadj)
+    BOmat, ACmat = helg.BOadj_to_BOmat(BOadj, num_vertices=num_atoms)
 
     # Get the molobjs
     mols = xyz_bo_2mol(BOmat, ACmat, atoms, xyz_coordinates,
@@ -469,20 +508,11 @@ if __name__ == "__main__":
         embed_chiral=embed_chiral,
         use_huckel=use_huckel)
 
-    print(BOmat)
-
-# if __name__ == "__main__":
-
-#     # Print output
-#     for mol in mols:
-#         if args.output_format == "sdf":
-#             txt = Chem.MolToMolBlock(mol)
-#             print(txt)
-
-#         else:
-#             # Canonical hack
-#             isomeric_smiles = not args.ignore_chiral
-#             smiles = Chem.MolToSmiles(mol, isomericSmiles=isomeric_smiles)
-#             m = Chem.MolFromSmiles(smiles)
-#             smiles = Chem.MolToSmiles(m, isomericSmiles=isomeric_smiles)
-#             print(smiles)
+    # Print output
+    for mol in mols:
+        # Canonical hack
+        isomeric_smiles = not args.ignore_chiral
+        smiles = Chem.MolToSmiles(mol, isomericSmiles=isomeric_smiles)
+        m = Chem.MolFromSmiles(smiles)
+        smiles = Chem.MolToSmiles(m, isomericSmiles=isomeric_smiles)
+        print(smiles)

@@ -1,5 +1,6 @@
 import sys
 import copy
+import numpy as np
 
 
 # Function to insert vertices
@@ -105,11 +106,11 @@ def example_usage():
 	print("Adjacency Matrix: ")
 	printMatrix(adjMatrix, V)
 
-def BOadj_to_BOmat(BOadj):
+def BOadj_to_BOmat(BOadj, num_vertices):
 	dict_edge_BOval = (list(BOadj.values())[0])
 	edge_list = list(dict_edge_BOval.keys())
 
-	V = 55
+	V = num_vertices
 
 	adjList = [[] for i in range(V)]
 
@@ -124,6 +125,10 @@ def BOadj_to_BOmat(BOadj):
 
 
 	BOmat, adjMatrix = convert_adjMat_to_BOmat(adjMatrix, BOadj, adjList, make_symmetric=True)
+
+	BOmat_np = np.array([np.array(BO_i) for BO_i in BOmat])
+	adjMatrix_np = np.array([np.array(adj_i) for adj_i in adjMatrix])
+
 	# Display adjacency list
 	debug = False
 	if debug:
@@ -135,7 +140,7 @@ def BOadj_to_BOmat(BOadj):
 		printMatrix(adjMatrix, V)
 		print(adjMatrix, "\n", BOmat)
 
-	return BOmat, adjMatrix
+	return BOmat_np, adjMatrix_np
 
 		
 if __name__=='__main__':
