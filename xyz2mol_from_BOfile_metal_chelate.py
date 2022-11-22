@@ -420,7 +420,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(usage='%(prog)s [options] molecule.xyz')
-    parser.add_argument('structure', metavar='structure', type=str)
+    # parser.add_argument('structure', metavar='structure', type=str)
     parser.add_argument('-s', '--sdf',
         action="store_true",
         help="Dump sdf file")
@@ -452,7 +452,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # read xyz file
-    filename = args.structure
+    # filename = args.structure
 
     # allow for charged fragments, alternatively radicals are made
     charged_fragments = not args.no_charged_fragments
@@ -467,6 +467,7 @@ if __name__ == "__main__":
 
     # huckel uses extended Huckel bond orders to locate bonds (requires RDKit 2019.9.1 or later)
     # otherwise van der Waals radii are used
+    # TODO: use van der waals as Biswajit sir was suggesting.
     use_huckel = args.use_huckel
 
     # if explicit charge from args, set it
@@ -480,39 +481,61 @@ if __name__ == "__main__":
 
 
 
-
     # read atoms and coordinates. Try to find the charge
     data_path = '/home/shubodh/OneDrive/mll_projects/2022/xyz2mol/examples/tmQM/'
     full_bo_file = 'tmQM_X.BO'
 
-    indi_id = 3
-    indi_name = 'tmQM_X1_Fe_mol_' + str(indi_id)
-    fe_bo_file = indi_name + '.BO'
-    fe_xyz_file = indi_name + '.xyz'
+    all_ids = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15] #range(1,16) #[1, 2, 3] #
+    # all_ids = [3]
 
-    BOfile = data_path + fe_bo_file
-    xyz_filename = data_path + fe_xyz_file
+    # IMPORTANT NOTE (s) about tmQM dataset: (Modifications made etc)
+    # 1. For tmQM_X1_Fe_mol_7.BO, removed last line since no of atoms was > 84 (i.e. was 85)
+    # 2. Even after above, still not working, so skipping 7 in all_ids currently.
+    # 
 
-    # # read atoms and coordinates. Try to find the charge
-    # atoms, charge, xyz_coordinates = read_xyz_file(filename)
+    for indi_id in all_ids:
 
-    atoms, charge, xyz_coordinates, num_atoms = read_xyz_file(xyz_filename)
-    BOadj = BOfile_to_BOadj(BOfile)
-    BOmat, ACmat = helg.BOadj_to_BOmat(BOadj, num_vertices=num_atoms)
+        # indi_id = 4
+        indi_name = 'tmQM_X1_Fe_mol_' + str(indi_id)
+        fe_bo_file = indi_name + '.BO'
+        fe_xyz_file = indi_name + '.xyz'
+        # print("\n For file ", fe_xyz_file)
 
-    # Get the molobjs
-    mols = xyz_bo_2mol(BOmat, ACmat, atoms, xyz_coordinates,
-        charge=charge,
-        use_graph=quick,
-        allow_charged_fragments=charged_fragments,
-        embed_chiral=embed_chiral,
-        use_huckel=use_huckel)
+        BOfile = data_path + fe_bo_file
+        xyz_filename = data_path + fe_xyz_file
 
-    # Print output
-    for mol in mols:
-        # Canonical hack
-        isomeric_smiles = not args.ignore_chiral
-        smiles = Chem.MolToSmiles(mol, isomericSmiles=isomeric_smiles)
-        m = Chem.MolFromSmiles(smiles)
-        smiles = Chem.MolToSmiles(m, isomericSmiles=isomeric_smiles)
-        print(smiles)
+        # # read atoms and coordinates. Try to find the charge
+        # atoms, charge, xyz_coordinates = read_xyz_file(filename)
+
+        atoms, charge, xyz_coordinates, num_atoms = read_xyz_file(xyz_filename)
+        BOadj = BOfile_to_BOadj(BOfile)
+        BOmat, ACmat = helg.BOadj_to_BOmat(BOadj, num_vertices=num_atoms)
+
+        # Get the molobjs
+        mols = xyz_bo_2mol(BOmat, ACmat, atoms, xyz_coordinates,
+            charge=charge,
+            use_graph=quick,
+            allow_charged_fragments=charged_fragments,
+            embed_chiral=embed_chiral,
+            use_huckel=use_huckel)
+
+        # Print output
+        for mol in mols:
+            # Canonical hack
+            isomeric_smiles = not args.ignore_chiral
+            smiles_original = Chem.MolToSmiles(mol, isomericSmiles=isomeric_smiles)
+
+            m = Chem.MolFromSmiles(smiles_original)
+            smiles_FromTo = Chem.MolToSmiles(m, isomericSmiles=isomeric_smiles)
+            # print(f"isometric smiles {isomeric_smiles}")
+            # print("Is smiles_FromTo==smiles_original? : " , smiles_FromTo==smiles_original)
+
+            smiles_canon = Chem.CanonSmiles(smiles_original)
+            m = Chem.MolFromSmiles(smiles_canon, sanitize=False)
+            m2 = helg.set_dative_bonds(m)
+            smiles_canon = Chem.CanonSmiles(Chem.MolToSmiles(m2))
+            # print("Is smiles_canon == smiles_FromTo? : ", smiles_canon==smiles_FromTo)
+            print('mol{}a=Chem.MolFromSmiles("{}")'.format(str(indi_id),smiles_canon))
+            # print(Chem.MolToSmiles(Chem.MolFromSmiles(smiles)))
+
+            # TODO: Check using networkx topology: see helg.topology_from_rdkit and helg.is_isomeric.
